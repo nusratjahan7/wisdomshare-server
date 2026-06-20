@@ -170,6 +170,54 @@ async function run() {
             }
         });
 
+        // --- COMMENTS ENDPOINTS ---
+        app.get('/api/comments/:lessonId', async (req, res) => {
+            try {
+                const lessonId = req.params.lessonId;
+                const comments = await commentsCollection
+                    .find({ lessonId })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.send(comments);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        app.get('/api/lessons/related/:category', async (req, res) => {
+            try {
+                const { category } = req.params;
+                const { currentId } = req.query;
+
+                const query = {
+                    category: { $regex: new RegExp(`^${category}$`, 'i') },
+                    _id: { $ne: new ObjectId(currentId) }
+                };
+
+                const related = await lessonsCollection
+                    .find(query)
+                    .limit(3)
+                    .toArray();
+
+                res.send(related);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        app.post('/api/comments/add', async (req, res) => {
+            try {
+                const comment = req.body;
+                const result = await commentsCollection.insertOne({
+                    ...comment,
+                    createdAt: new Date()
+                });
+                res.status(201).send(result);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
         app.get('/api/lessons/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
