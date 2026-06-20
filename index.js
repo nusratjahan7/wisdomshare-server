@@ -78,7 +78,16 @@ async function run() {
         });
 
 
-        // lessons related
+
+        app.get('/api/lessons', async (req, res) => {
+            const query = {};
+            const cursor = lessonsCollection.find(query);
+            const result = await cursor.toArray();
+            res.send(result);
+        });
+
+
+
         app.get('/my-lessons', async (req, res) => {
             const userId = req.query.userId;
 
