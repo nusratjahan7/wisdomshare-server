@@ -177,6 +177,7 @@ async function run() {
                 const comments = await commentsCollection
                     .find({ lessonId })
                     .sort({ createdAt: -1 })
+                    .limit(4)
                     .toArray();
                 res.send(comments);
             } catch (error) {
