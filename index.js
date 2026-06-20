@@ -80,10 +80,45 @@ async function run() {
 
 
         app.get('/api/lessons', async (req, res) => {
-            const query = {};
-            const cursor = lessonsCollection.find(query);
-            const result = await cursor.toArray();
-            res.send(result);
+            try {
+                const query = {};
+
+
+                if (req.query.search) {
+                    query.$or = [
+                        { title: { $regex: req.query.search, $options: 'i' } },
+                        { subtitle: { $regex: req.query.search, $options: 'i' } }
+                    ];
+                }
+
+
+                if (req.query.category && req.query.category !== 'all') {
+                    query.category = { $regex: new RegExp(`^${req.query.category}$`, 'i') };
+                }
+
+
+                if (req.query.accessType && req.query.accessType !== 'all') {
+                    query.accessType = req.query.accessType;
+                }
+
+
+                const page = parseInt(req.query.page) || 1;
+                const perPage = parseInt(req.query.perPage) || 12;
+                const skipItems = (page - 1) * perPage;
+
+                const total = await lessonsCollection.countDocuments(query);
+
+
+                const lessons = await lessonsCollection.find(query)
+                    .sort({ createdAt: -1 })
+                    .skip(skipItems)
+                    .limit(perPage)
+                    .toArray();
+
+                res.send({ total, lessons });
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
         });
 
 
