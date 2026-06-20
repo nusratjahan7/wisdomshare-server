@@ -156,6 +156,20 @@ async function run() {
             res.send({ isSaved: !!existing });
         });
 
+        // --- SUBMIT REPORT ENDPOINT ---
+        app.post('/api/reports/add', async (req, res) => {
+            try {
+                const reportData = req.body;
+                const result = await reportsCollection.insertOne({
+                    ...reportData,
+                    createdAt: new Date()
+                });
+                res.status(201).send({ success: true, result });
+            } catch (error) {
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
         app.get('/api/lessons/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
