@@ -29,6 +29,9 @@ async function run() {
         const db = client.db(process.env.AUTH_DB_NAME);
         const usersCollection = db.collection("user");
         const lessonsCollection = db.collection("lessons");
+        const savedCollection = db.collection("saved_lessons");
+        const reportsCollection = db.collection("reports");
+        const commentsCollection = db.collection("comments");
 
         // user related
         app.post('/user/profile/update/:id', async (req, res) => {
@@ -77,6 +80,7 @@ async function run() {
             }
         });
 
+        // --- LIKE AND UNLIKE ENDPOINT ---
         app.post('/api/lessons/:id/like', async (req, res) => {
             try {
                 const id = req.params.id;
@@ -110,6 +114,36 @@ async function run() {
                     liked,
                     totalLikes: updatedLesson.totalLikes || 0
                 });
+            } catch (error) {
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+        // --- SAVE LESSON ENDPOINT WITH USER PLAN RESTRICTION ---
+        app.post('/api/lessons/save', async (req, res) => {
+            try {
+                const { lessonId, userId, userPlan } = req.body;
+
+                // Check if already saved
+                const existingSave = await savedCollection.findOne({ lessonId, userId });
+                if (existingSave) {
+                    return res.status(400).send({ success: false, message: "Lesson already saved!" });
+                }
+
+                // Limit validation for user_free plan
+                if (userPlan === 'user_free') {
+                    const count = await savedCollection.countDocuments({ userId });
+                    if (count >= 5) {
+                        return res.status(403).send({
+                            success: false,
+                            message: "Free tier limit reached! You cannot save more than 5 lessons."
+                        });
+                    }
+                }
+
+                const newSave = { lessonId, userId, savedAt: new Date() };
+                const result = await savedCollection.insertOne(newSave);
+                res.status(201).send({ success: true, result });
             } catch (error) {
                 res.status(500).send({ success: false, error: error.message });
             }
