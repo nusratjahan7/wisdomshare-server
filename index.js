@@ -30,6 +30,55 @@ async function run() {
         const usersCollection = db.collection("user");
         const lessonsCollection = db.collection("lessons");
 
+        // user related
+        app.post('/user/profile/update/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { name, bio, image } = req.body;
+
+                const filter = { _id: new ObjectId(id) };
+                const updateDoc = {
+                    $set: {
+                        name: name,
+                        bio: bio,
+                        image: image,
+                        updatedAt: new Date()
+                    }
+                };
+
+                const result = await usersCollection.updateOne(filter, updateDoc);
+
+                if (result.modifiedCount > 0 || result.matchedCount > 0) {
+                    res.status(200).send({ success: true, message: "Profile updated successfully!" });
+                } else {
+                    res.status(400).send({ success: false, message: "No changes made." });
+                }
+            } catch (error) {
+                console.error("Profile Update Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+
+        app.get('/user/stats/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+
+                const lessonCount = await lessonsCollection.countDocuments({ userId: id });
+
+                res.status(200).send({
+                    totalLessons: lessonCount,
+                    totalLikes: 934,
+                    totalViews: "12.8k"
+                });
+            } catch (error) {
+                console.error("Stats Fetch Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+
+        // lessons related
         app.get('/my-lessons', async (req, res) => {
             const userId = req.query.userId;
 
