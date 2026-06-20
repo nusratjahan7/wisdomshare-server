@@ -149,6 +149,13 @@ async function run() {
             }
         });
 
+        // Check save status for initialization
+        app.get('/api/lessons/save-status', async (req, res) => {
+            const { lessonId, userId } = req.query;
+            const existing = await savedCollection.findOne({ lessonId, userId });
+            res.send({ isSaved: !!existing });
+        });
+
         app.get('/api/lessons/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
