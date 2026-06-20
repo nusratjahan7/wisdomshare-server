@@ -77,7 +77,50 @@ async function run() {
             }
         });
 
+        app.post('/api/lessons/:id/like', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { userId } = req.body;
+                const filter = { _id: new ObjectId(id) };
 
+                const lesson = await lessonsCollection.findOne(filter);
+                if (!lesson) return res.status(404).send({ success: false, message: "Lesson not found" });
+
+                let likesArray = lesson.likedBy || [];
+                let liked = false;
+
+                if (likesArray.includes(userId)) {
+                    // Pull if already liked
+                    await lessonsCollection.updateOne(filter, {
+                        $pull: { likedBy: userId },
+                        $inc: { totalLikes: -1 }
+                    });
+                } else {
+                    // Push if not liked yet
+                    await lessonsCollection.updateOne(filter, {
+                        $push: { likedBy: userId },
+                        $inc: { totalLikes: 1 }
+                    });
+                    liked = true;
+                }
+
+                const updatedLesson = await lessonsCollection.findOne(filter);
+                res.status(200).send({
+                    success: true,
+                    liked,
+                    totalLikes: updatedLesson.totalLikes || 0
+                });
+            } catch (error) {
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+        app.get('/api/lessons/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await lessonsCollection.findOne(query);
+            res.send(result);
+        })
 
         app.get('/api/lessons', async (req, res) => {
             try {
