@@ -624,6 +624,28 @@ async function run() {
         // ==========================================
         // UTILITY: REPORTS & COMMENTS
         // ==========================================
+        app.get('/api/admin/reports', async (req, res) => {
+            try {
+                const reports = await reportsCollection.aggregate([
+                    {
+                        $group: {
+                            _id: "$lessonId",
+                            lessonTitle: { $first: "$lessonTitle" },
+                            reportCount: { $sum: 1 },
+                            reports: { $push: "$$ROOT" }
+                        }
+                    }
+                ]).toArray();
+
+                res.send(reports);
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
         app.post('/api/reports/add', async (req, res) => {
             try {
                 const reportData = req.body;
@@ -634,6 +656,45 @@ async function run() {
                 res.status(201).send({ success: true, result });
             } catch (error) {
                 res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+        app.delete('/api/admin/reports/ignore/:lessonId', async (req, res) => {
+            try {
+                const { lessonId } = req.params;
+
+                await reportsCollection.deleteMany({
+                    lessonId
+                });
+
+                res.send({
+                    success: true,
+                    message: "Reports cleared"
+                });
+
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        app.delete('/api/admin/reports/delete-lesson/:lessonId', async (req, res) => {
+            try {
+                const { lessonId } = req.params;
+
+                await lessonsCollection.deleteOne({
+                    _id: new ObjectId(lessonId)
+                });
+
+                await reportsCollection.deleteMany({
+                    lessonId
+                });
+
+                res.send({
+                    success: true
+                });
+
+            } catch (error) {
+                res.status(500).send({ error: error.message });
             }
         });
 
