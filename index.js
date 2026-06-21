@@ -289,6 +289,56 @@ async function run() {
             }
         });
 
+        // --- GET USER SAVED LESSONS DETAILS ---
+        app.get('/my-saved-lessons', async (req, res) => {
+            try {
+                const userId = req.query.userId;
+                if (!userId) {
+                    return res.status(400).send({ success: false, message: "UserId is required" });
+                }
+
+                const savedLessons = await savedCollection.aggregate([
+                    { $match: { userId: userId } },
+                    {
+                        $addFields: {
+                            lessonObjectId: { $toObjectId: "$lessonId" }
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "lessons",
+                            localField: "lessonObjectId",
+                            foreignField: "_id",
+                            as: "lessonDetails"
+                        }
+                    },
+                    { $unwind: "$lessonDetails" },
+                    { $sort: { savedAt: -1 } }
+                ]).toArray();
+
+
+                const formattedResult = savedLessons.map(item => ({
+                    _id: item.lessonDetails._id,
+                    title: item.lessonDetails.title,
+                    subtitle: item.lessonDetails.subtitle,
+                    description: item.lessonDetails.description,
+                    image: item.lessonDetails.image,
+                    tags: item.lessonDetails.tags || ["Reflective"],
+                    accessType: item.lessonDetails.accessType,
+                    isFeatured: item.lessonDetails.isFeatured,
+                    authorName: item.lessonDetails.authorName,
+                    authorImage: item.lessonDetails.authorImage,
+                    totalLikes: item.lessonDetails.totalLikes || 0,
+                    totalSaves: item.lessonDetails.totalSaves || 0
+                }));
+
+                res.status(200).send(formattedResult);
+            } catch (error) {
+                console.error("Fetch Saved Lessons Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
         // ==========================================
         // UTILITY: REPORTS & COMMENTS
         // ==========================================
