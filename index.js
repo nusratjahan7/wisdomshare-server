@@ -39,6 +39,89 @@ async function run() {
 
         console.log(`Connected successfully to database: ${dbName}`);
 
+
+        // ==========================================
+        // ADMIN: USER MANAGEMENT ROUTES
+        // ==========================================
+        app.get('/api/admin/users', async (req, res) => {
+            try {
+
+                const allUsers = await usersCollection.find({}).toArray();
+                const formattedUsers = await Promise.all(allUsers.map(async (user) => {
+                    const userIdString = user._id.toString();
+                    const count = await lessonsCollection.countDocuments({ userId: userIdString });
+
+                    return {
+                        _id: user._id,
+                        name: user.name,
+                        email: user.email,
+                        joined: user.createdAt || "N/A",
+                        plan: user.plan || "user_free",
+                        status: user.status || "Active",
+                        role: user.role || "user",
+                        lessons: count
+                    };
+                }));
+
+                res.status(200).send(formattedUsers);
+            } catch (error) {
+                console.error("Fetch All Users Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+
+        app.patch('/api/admin/users/update-role/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { role } = req.body;
+
+                if (!role) {
+                    return res.status(400).send({ success: false, message: "Role is required" });
+                }
+
+                const filter = { _id: new ObjectId(id) };
+                const updateDoc = {
+                    $set: {
+                        role: role,
+                        updatedAt: new Date()
+                    }
+                };
+
+                const result = await usersCollection.updateOne(filter, updateDoc);
+
+                if (result.modifiedCount > 0 || result.matchedCount > 0) {
+                    res.status(200).send({ success: true, message: `User role updated to ${role} successfully!` });
+                } else {
+                    res.status(400).send({ success: false, message: "No changes made." });
+                }
+            } catch (error) {
+                console.error("Role Update Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+
+        app.delete('/api/admin/users/delete/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const filter = { _id: new ObjectId(id) };
+
+
+                const result = await usersCollection.deleteOne(filter);
+
+                if (result.deletedCount === 1) {
+                    res.status(200).send({ success: true, message: "User account deleted successfully!" });
+                } else {
+                    res.status(404).send({ success: false, message: "User not found" });
+                }
+            } catch (error) {
+                console.error("User Delete Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+
         // ==========================================
         // USER ROUTES
         // ==========================================
@@ -296,7 +379,7 @@ async function run() {
                             pipeline: [
                                 {
                                     $match: {
-                                        $expr: { $eq: ["$lessonId", "$$$lesson_id"] }
+                                        $expr: { $eq: ["$lessonId", "$$lesson_id"] }
                                     }
                                 }
                             ],
@@ -525,6 +608,9 @@ async function run() {
             }
         });
 
+        // ==========================================
+        // Top Contributor
+        // ==========================================
         app.get('/api/top-contributors', async (req, res) => {
             try {
                 const topContributors = await usersCollection.aggregate([
@@ -572,6 +658,8 @@ async function run() {
         console.error("Failed to start server configurations:", err);
     }
 }
+
+
 
 run().catch(console.dir);
 
