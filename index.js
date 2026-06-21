@@ -87,6 +87,80 @@ async function run() {
             }
         });
 
+        app.get('/api/user-dashboard', async (req, res) => {
+            try {
+
+                const userId = req.query.userId;
+                if (!userId) {
+                    return res.status(400).send({ error: "User ID is required" });
+                }
+
+
+                const totalLessons = await lessonsCollection.countDocuments({ userId: userId });
+
+
+                const statsPipeline = [
+                    { $match: { userId: userId } },
+                    {
+                        $group: {
+                            _id: null,
+                            totalLikes: { $sum: { $cond: { if: { $isArray: "$likedBy" }, then: { $size: "$likedBy" }, else: 0 } } },
+                            totalViews: { $sum: { $ifNull: ["$views", 0] } }
+                        }
+                    }
+                ];
+                const statsResult = await lessonsCollection.aggregate(statsPipeline).toArray();
+                const totalLikes = statsResult[0]?.totalLikes || 0;
+                const totalViews = statsResult[0]?.totalViews || 0;
+
+
+                const userLessons = await lessonsCollection.find({ userId: userId }, { projection: { _id: 1 } }).toArray();
+                const userLessonIds = userLessons.map(lesson => lesson._id.toString());
+
+                const totalSaves = await db.collection("saved_lessons").countDocuments({
+                    lessonId: { $in: userLessonIds }
+                });
+
+
+                const graphDataPipeline = [
+                    { $match: { userId: userId } },
+                    {
+                        $group: {
+                            _id: { $month: "$createdAt" },
+                            lessonsCount: { $sum: 1 },
+                            likesCount: { $sum: { $cond: { if: { $isArray: "$likedBy" }, then: { $size: "$likedBy" }, else: 0 } } }
+                        }
+                    },
+                    { $sort: { "_id": 1 } }
+                ];
+                const rawGraphData = await lessonsCollection.aggregate(graphDataPipeline).toArray();
+
+
+                const monthsMap = { 1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun" };
+                const graphData = Object.keys(monthsMap).map(mMonth => {
+                    const monthNum = parseInt(mMonth);
+                    const found = rawGraphData.find(d => d._id === monthNum);
+                    return {
+                        month: monthsMap[monthNum],
+                        lessons: found ? found.lessonsCount : 0,
+                        likes: found ? found.likesCount : 0
+                    };
+                });
+
+
+                res.send({
+                    totalLessons,
+                    totalViews,
+                    totalLikes,
+                    totalSaves,
+                    graphData
+                });
+
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
         // ==========================================
         // LESSONS & INTERACTION ROUTES
         // ==========================================
