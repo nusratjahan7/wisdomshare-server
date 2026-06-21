@@ -218,11 +218,50 @@ async function run() {
                 const skipItems = (page - 1) * perPage;
 
                 const total = await lessonsCollection.countDocuments(query);
-                const lessons = await lessonsCollection.find(query)
-                    .sort({ createdAt: -1 })
-                    .skip(skipItems)
-                    .limit(perPage)
-                    .toArray();
+
+
+                const lessons = await lessonsCollection.aggregate([
+                    { $match: query },
+                    { $sort: { createdAt: -1 } },
+                    { $skip: skipItems },
+                    { $limit: perPage },
+
+                    {
+                        $lookup: {
+                            from: "saved_lessons",
+                            let: { lesson_id: { $toString: "$_id" } },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$lessonId", "$$lesson_id"] }
+                                    }
+                                }
+                            ],
+                            as: "savedDocs"
+                        }
+                    },
+
+                    {
+                        $addFields: {
+
+                            totalSaves: { $size: "$savedDocs" },
+
+                            totalLikes: {
+                                $cond: {
+                                    if: { $isArray: "$likedBy" },
+                                    then: { $size: "$likedBy" },
+                                    else: 0
+                                }
+                            }
+                        }
+                    },
+
+                    {
+                        $project: {
+                            savedDocs: 0
+                        }
+                    }
+                ]).toArray();
 
                 res.send({ total, lessons });
             } catch (error) {
