@@ -45,6 +45,99 @@ async function run() {
         // ==========================================
         // ADMIN: USER MANAGEMENT ROUTES
         // ==========================================
+        app.get('/api/admin/analytics-overview', async (req, res) => {
+            try {
+                const totalUsers = await usersCollection.countDocuments({});
+                const publishedLessons = await lessonsCollection.countDocuments({ status: "Reviewed" });
+                const premiumMembers = await usersCollection.countDocuments({ plan: { $ne: "user_free" } });
+                const reportedContent = await reportsCollection.countDocuments({});
+
+                // ফিক্সড পাইপলাইন: প্রথমে চেক করা হচ্ছে ফিল্ডটি খালি কিনা, তারপর সেটিকে ডেট অবজেক্টে রূপান্তর করা হচ্ছে
+                const monthlyGrowthPipeline = [
+                    {
+                        $addFields: {
+                            // যদি createdAt ফিল্ডটি থাকে, তবে তাকে ডেট অবজেক্ট বানাবে, নাহলে কারেন্ট ডেট অবজেক্ট বসাবে
+                            validDate: {
+                                $cond: {
+                                    if: { $and: [{ $not: [{ $not: ["$createdAt"] }] }, { $ne: ["$createdAt", null] }] },
+                                    then: { $toDate: "$createdAt" },
+                                    else: new Date()
+                                }
+                            }
+                        }
+                    },
+                    {
+                        $group: {
+                            // এখন "$createdAt"-এর বদলে রূপান্তরিত "$validDate" ব্যবহার করা হয়েছে
+                            _id: { $month: "$validDate" },
+                            count: { $sum: 1 }
+                        }
+                    },
+                    { $sort: { "_id": 1 } }
+                ];
+
+                const userGrowthRaw = await usersCollection.aggregate(monthlyGrowthPipeline).toArray();
+                const lessonGrowthRaw = await lessonsCollection.aggregate(monthlyGrowthPipeline).toArray();
+
+                const monthsMap = { 1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun" };
+
+                const growthChartData = Object.keys(monthsMap).map(mMonth => {
+                    const monthNum = parseInt(mMonth);
+                    const userMonth = userGrowthRaw.find(d => d._id === monthNum);
+                    const lessonMonth = lessonGrowthRaw.find(d => d._id === monthNum);
+
+                    return {
+                        month: monthsMap[monthNum],
+                        users: userMonth ? userMonth.count : 0,
+                        lessons: lessonMonth ? lessonMonth.count : 0
+                    };
+                });
+
+                const categoryPipeline = [
+                    {
+                        $group: {
+                            _id: "$category",
+                            count: { $sum: 1 }
+                        }
+                    },
+                    { $sort: { count: -1 } }
+                ];
+                const rawCategories = await lessonsCollection.aggregate(categoryPipeline).toArray();
+
+                const lessonsByCategory = rawCategories.map(cat => ({
+                    category: cat._id || "Other",
+                    count: cat.count
+                }));
+
+                const startOfToday = new Date();
+                startOfToday.setHours(0, 0, 0, 0);
+
+                // আজকের লেসন কাউন্টের কোয়েরিকেও স্ট্রিং বা ডেট অবজেক্ট দুই ফরম্যাটের জন্যই নিরাপদ করা হলো
+                const todaysLessonsCount = await lessonsCollection.countDocuments({
+                    $or: [
+                        { createdAt: { $gte: startOfToday } },
+                        { createdAt: { $gte: startOfToday.toISOString() } } // যদি ডাটাবেজে ISO String থাকে
+                    ]
+                });
+
+                res.status(200).send({
+                    cards: {
+                        totalUsers,
+                        publishedLessons,
+                        premiumMembers,
+                        reportedContent,
+                        todaysLessons: todaysLessonsCount
+                    },
+                    growthChartData,
+                    lessonsByCategory
+                });
+
+            } catch (error) {
+                console.error("Admin Analytics Fetch Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
         app.get('/api/admin/users', async (req, res) => {
             try {
                 const allUsers = await usersCollection.find({}).toArray();
