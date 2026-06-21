@@ -24,7 +24,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        // Connect the client to the server
         await client.connect();
 
         const dbName = process.env.AUTH_DB_NAME || "test";
@@ -89,15 +88,12 @@ async function run() {
 
         app.get('/api/user-dashboard', async (req, res) => {
             try {
-
                 const userId = req.query.userId;
                 if (!userId) {
                     return res.status(400).send({ error: "User ID is required" });
                 }
 
-
                 const totalLessons = await lessonsCollection.countDocuments({ userId: userId });
-
 
                 const statsPipeline = [
                     { $match: { userId: userId } },
@@ -113,14 +109,12 @@ async function run() {
                 const totalLikes = statsResult[0]?.totalLikes || 0;
                 const totalViews = statsResult[0]?.totalViews || 0;
 
-
                 const userLessons = await lessonsCollection.find({ userId: userId }, { projection: { _id: 1 } }).toArray();
                 const userLessonIds = userLessons.map(lesson => lesson._id.toString());
 
                 const totalSaves = await db.collection("saved_lessons").countDocuments({
                     lessonId: { $in: userLessonIds }
                 });
-
 
                 const graphDataPipeline = [
                     { $match: { userId: userId } },
@@ -135,7 +129,6 @@ async function run() {
                 ];
                 const rawGraphData = await lessonsCollection.aggregate(graphDataPipeline).toArray();
 
-
                 const monthsMap = { 1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun" };
                 const graphData = Object.keys(monthsMap).map(mMonth => {
                     const monthNum = parseInt(mMonth);
@@ -147,7 +140,6 @@ async function run() {
                     };
                 });
 
-
                 res.send({
                     totalLessons,
                     totalViews,
@@ -155,7 +147,6 @@ async function run() {
                     totalSaves,
                     graphData
                 });
-
             } catch (error) {
                 res.status(500).send({ error: error.message });
             }
@@ -293,13 +284,11 @@ async function run() {
 
                 const total = await lessonsCollection.countDocuments(query);
 
-
                 const lessons = await lessonsCollection.aggregate([
                     { $match: query },
                     { $sort: { createdAt: -1 } },
                     { $skip: skipItems },
                     { $limit: perPage },
-
                     {
                         $lookup: {
                             from: "saved_lessons",
@@ -307,19 +296,16 @@ async function run() {
                             pipeline: [
                                 {
                                     $match: {
-                                        $expr: { $eq: ["$lessonId", "$$lesson_id"] }
+                                        $expr: { $eq: ["$lessonId", "$$$lesson_id"] }
                                     }
                                 }
                             ],
                             as: "savedDocs"
                         }
                     },
-
                     {
                         $addFields: {
-
                             totalSaves: { $size: "$savedDocs" },
-
                             totalLikes: {
                                 $cond: {
                                     if: { $isArray: "$likedBy" },
@@ -329,7 +315,6 @@ async function run() {
                             }
                         }
                     },
-
                     {
                         $project: {
                             savedDocs: 0
@@ -402,7 +387,6 @@ async function run() {
             }
         });
 
-        // --- GET USER SAVED LESSONS DETAILS ---
         app.get('/my-saved-lessons', async (req, res) => {
             try {
                 const userId = req.query.userId;
@@ -428,7 +412,6 @@ async function run() {
                     { $unwind: "$lessonDetails" },
                     { $sort: { savedAt: -1 } }
                 ]).toArray();
-
 
                 const formattedResult = savedLessons.map(item => ({
                     _id: item.lessonDetails._id,
@@ -502,7 +485,7 @@ async function run() {
             try {
                 const query = {};
                 if (req.query.plan_id) {
-                    query.planId = req.query.plan_id; // Check using your dynamic unique key
+                    query.planId = req.query.plan_id;
                 }
                 const plan = await planCollection.findOne(query);
                 res.send(plan);
@@ -524,14 +507,12 @@ async function run() {
                 };
                 const paymentResult = await paymentCollection.insertOne(subInfo);
 
-                // Update the user's tier assignment
                 const filter = { email: data.email };
                 const updateDocument = {
                     $set: { plan: data.planId }
                 };
                 const userUpdateResult = await usersCollection.updateOne(filter, updateDocument);
 
-                // Return clean structural JSON to prevent Next.js parsing crashes
                 res.status(200).send({
                     success: true,
                     message: "Payment tracked and user plan upgraded.",
@@ -544,7 +525,46 @@ async function run() {
             }
         });
 
-        // Ping confirmation
+        app.get('/api/top-contributors', async (req, res) => {
+            try {
+                const topContributors = await usersCollection.aggregate([
+                    {
+                        $lookup: {
+                            from: "lessons",
+                            let: { user_id: { $toString: "$_id" } },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$userId", "$$user_id"] }
+                                    }
+                                }
+                            ],
+                            as: "userLessons"
+                        }
+                    },
+                    {
+                        $addFields: {
+                            lessonCount: { $size: "$userLessons" }
+                        }
+                    },
+                    { $sort: { lessonCount: -1 } },
+                    { $limit: 3 },
+                    {
+                        $project: {
+                            name: 1,
+                            image: 1,
+                            title: 1,
+                            lessonCount: 1
+                        }
+                    }
+                ]).toArray();
+
+                res.send(topContributors);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
