@@ -37,6 +37,8 @@ async function run() {
         const planCollection = db.collection("plans");
         const paymentCollection = db.collection("payments");
 
+        const featuredCollection = db.collection("featured");
+
         console.log(`Connected successfully to database: ${dbName}`);
 
 
@@ -45,7 +47,6 @@ async function run() {
         // ==========================================
         app.get('/api/admin/users', async (req, res) => {
             try {
-
                 const allUsers = await usersCollection.find({}).toArray();
                 const formattedUsers = await Promise.all(allUsers.map(async (user) => {
                     const userIdString = user._id.toString();
@@ -69,7 +70,6 @@ async function run() {
                 res.status(500).send({ success: false, error: error.message });
             }
         });
-
 
         app.patch('/api/admin/users/update-role/:id', async (req, res) => {
             try {
@@ -101,12 +101,10 @@ async function run() {
             }
         });
 
-
         app.delete('/api/admin/users/delete/:id', async (req, res) => {
             try {
                 const id = req.params.id;
                 const filter = { _id: new ObjectId(id) };
-
 
                 const result = await usersCollection.deleteOne(filter);
 
@@ -121,6 +119,109 @@ async function run() {
             }
         });
 
+
+        // ==========================================
+        // ADMIN: LESSON MODERATION ROUTES
+        // ==========================================
+        app.get('/api/admin/lessons', async (req, res) => {
+            try {
+                const allLessons = await lessonsCollection.find({}).sort({ createdAt: -1 }).toArray();
+
+                const formattedLessons = allLessons.map(lesson => ({
+                    _id: lesson._id,
+                    title: lesson.title,
+                    createdAt: lesson.createdAt || "N/A",
+                    username: lesson.username || "Unknown Author",
+                    category: lesson.category || "General",
+                    access: lesson.accessType || "Free",
+                    isFeatured: lesson.isFeatured || false,
+                    status: lesson.status || "Pending",
+                    image: lesson.image || ""
+                }));
+
+                res.status(200).send(formattedLessons);
+            } catch (error) {
+                console.error("Fetch All Lessons Admin Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+
+        app.patch('/api/admin/lessons/featured/:id', async (req, res) => {
+            const { id } = req.params;
+            const { isFeatured, ...fullLessonData } = req.body; // ফ্রন্টএন্ড থেকে পাঠানো সম্পূর্ণ ডাটা এবং ফ্ল্যাগ রিসিভ করা হলো
+
+            try {
+                // ১. মূল lessons কালেকশনে ফিউচার্ড স্ট্যাটাস আপডেট করা
+                await lessonsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { isFeatured: isFeatured, updatedAt: new Date() } }
+                );
+
+                if (isFeatured) {
+                    // ২. যদি Featured ট্রু হয়, তবে সম্পূর্ণ ডাটা সহ featured কালেকশনে Upsert করুন
+                    // ফ্রন্টএন্ড থেকে আসা অবজেক্টে আইডি থাকলে তা বাদ দিয়ে মূল আইডি সেট করছি
+                    delete fullLessonData._id;
+
+                    await featuredCollection.updateOne(
+                        { lessonId: new ObjectId(id) },
+                        {
+                            $set: {
+                                lessonId: new ObjectId(id),
+                                ...fullLessonData,
+                                addedAt: new Date()
+                            }
+                        },
+                        { upsert: true }
+                    );
+                } else {
+                    // ৩. যদি Featured ফলস হয়, তবে featured কালেকশন থেকে রিমুভ করে দিন
+                    await featuredCollection.deleteOne({ lessonId: new ObjectId(id) });
+                }
+
+                res.status(200).send({ success: true, message: `Featured status updated to ${isFeatured}` });
+            } catch (error) {
+                console.error("Featured Update Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+        app.patch('/api/admin/lessons/reviewed/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const filter = { _id: new ObjectId(id) };
+                const updateDoc = {
+                    $set: {
+                        status: "Reviewed",
+                        updatedAt: new Date()
+                    }
+                };
+
+                const result = await lessonsCollection.updateOne(filter, updateDoc);
+                if (result.modifiedCount > 0 || result.matchedCount > 0) {
+                    res.status(200).send({ success: true, message: "Lesson marked as reviewed!" });
+                } else {
+                    res.status(400).send({ success: false, message: "No changes made." });
+                }
+            } catch (error) {
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+
+        app.get('/api/lessons/featured', async (req, res) => {
+            try {
+                const featuredLessons = await lessonsCollection
+                    .find({ isFeatured: true })
+                    .sort({ updatedAt: -1 })
+                    .limit(6)
+                    .toArray();
+
+                res.send(featuredLessons);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
 
         // ==========================================
         // USER ROUTES
@@ -234,6 +335,7 @@ async function run() {
                 res.status(500).send({ error: error.message });
             }
         });
+
 
         // ==========================================
         // LESSONS & INTERACTION ROUTES
@@ -518,6 +620,7 @@ async function run() {
             }
         });
 
+
         // ==========================================
         // UTILITY: REPORTS & COMMENTS
         // ==========================================
@@ -560,6 +663,7 @@ async function run() {
                 res.status(500).send({ error: error.message });
             }
         });
+
 
         // ==========================================
         // PLANS & SUBSCRIPTION PAYMENTS
@@ -607,6 +711,7 @@ async function run() {
                 res.status(500).send({ success: false, error: error.message });
             }
         });
+
 
         // ==========================================
         // Top Contributor
@@ -658,8 +763,6 @@ async function run() {
         console.error("Failed to start server configurations:", err);
     }
 }
-
-
 
 run().catch(console.dir);
 
