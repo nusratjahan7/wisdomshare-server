@@ -1,13 +1,14 @@
 const express = require('express');
 const dotenv = require('dotenv');
-
-const app = express();
 const cors = require('cors');
-dotenv.config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
-const PORT = process.env.PORT;
+dotenv.config();
 
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 
@@ -23,17 +24,25 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        // Connect the client to the server	(optional starting in v4.7)
+        // Connect the client to the server
         await client.connect();
 
-        const db = client.db(process.env.AUTH_DB_NAME);
+        const dbName = process.env.AUTH_DB_NAME || "test";
+        const db = client.db(dbName);
+
         const usersCollection = db.collection("user");
         const lessonsCollection = db.collection("lessons");
         const savedCollection = db.collection("saved_lessons");
         const reportsCollection = db.collection("reports");
         const commentsCollection = db.collection("comments");
+        const planCollection = db.collection("plans");
+        const paymentCollection = db.collection("payments");
 
-        // user related
+        console.log(`Connected successfully to database: ${dbName}`);
+
+        // ==========================================
+        // USER ROUTES
+        // ==========================================
         app.post('/user/profile/update/:id', async (req, res) => {
             try {
                 const id = req.params.id;
@@ -62,11 +71,9 @@ async function run() {
             }
         });
 
-
         app.get('/user/stats/:id', async (req, res) => {
             try {
                 const id = req.params.id;
-
                 const lessonCount = await lessonsCollection.countDocuments({ userId: id });
 
                 res.status(200).send({
@@ -80,7 +87,9 @@ async function run() {
             }
         });
 
-        // --- LIKE AND UNLIKE ENDPOINT ---
+        // ==========================================
+        // LESSONS & INTERACTION ROUTES
+        // ==========================================
         app.post('/api/lessons/:id/like', async (req, res) => {
             try {
                 const id = req.params.id;
@@ -94,13 +103,11 @@ async function run() {
                 let liked = false;
 
                 if (likesArray.includes(userId)) {
-                    // Pull if already liked
                     await lessonsCollection.updateOne(filter, {
                         $pull: { likedBy: userId },
                         $inc: { totalLikes: -1 }
                     });
                 } else {
-                    // Push if not liked yet
                     await lessonsCollection.updateOne(filter, {
                         $push: { likedBy: userId },
                         $inc: { totalLikes: 1 }
@@ -119,18 +126,15 @@ async function run() {
             }
         });
 
-        // --- SAVE LESSON ENDPOINT WITH USER PLAN RESTRICTION ---
         app.post('/api/lessons/save', async (req, res) => {
             try {
                 const { lessonId, userId, userPlan } = req.body;
 
-                // Check if already saved
                 const existingSave = await savedCollection.findOne({ lessonId, userId });
                 if (existingSave) {
                     return res.status(400).send({ success: false, message: "Lesson already saved!" });
                 }
 
-                // Limit validation for user_free plan
                 if (userPlan === 'user_free') {
                     const count = await savedCollection.countDocuments({ userId });
                     if (count >= 5) {
@@ -149,37 +153,11 @@ async function run() {
             }
         });
 
-        // Check save status for initialization
         app.get('/api/lessons/save-status', async (req, res) => {
-            const { lessonId, userId } = req.query;
-            const existing = await savedCollection.findOne({ lessonId, userId });
-            res.send({ isSaved: !!existing });
-        });
-
-        // --- SUBMIT REPORT ENDPOINT ---
-        app.post('/api/reports/add', async (req, res) => {
             try {
-                const reportData = req.body;
-                const result = await reportsCollection.insertOne({
-                    ...reportData,
-                    createdAt: new Date()
-                });
-                res.status(201).send({ success: true, result });
-            } catch (error) {
-                res.status(500).send({ success: false, error: error.message });
-            }
-        });
-
-        // --- COMMENTS ENDPOINTS ---
-        app.get('/api/comments/:lessonId', async (req, res) => {
-            try {
-                const lessonId = req.params.lessonId;
-                const comments = await commentsCollection
-                    .find({ lessonId })
-                    .sort({ createdAt: -1 })
-                    .limit(4)
-                    .toArray();
-                res.send(comments);
+                const { lessonId, userId } = req.query;
+                const existing = await savedCollection.findOne({ lessonId, userId });
+                res.send({ isSaved: !!existing });
             } catch (error) {
                 res.status(500).send({ error: error.message });
             }
@@ -191,45 +169,34 @@ async function run() {
                 const { currentId } = req.query;
 
                 const query = {
-                    category: { $regex: new RegExp(`^${category}$`, 'i') },
-                    _id: { $ne: new ObjectId(currentId) }
+                    category: { $regex: new RegExp(`^${category}$`, 'i') }
                 };
 
-                const related = await lessonsCollection
-                    .find(query)
-                    .limit(3)
-                    .toArray();
+                if (currentId && currentId !== 'undefined') {
+                    query._id = { $ne: new ObjectId(currentId) };
+                }
 
+                const related = await lessonsCollection.find(query).limit(3).toArray();
                 res.send(related);
             } catch (error) {
                 res.status(500).send({ error: error.message });
             }
         });
 
-        app.post('/api/comments/add', async (req, res) => {
+        app.get('/api/lessons/:id', async (req, res) => {
             try {
-                const comment = req.body;
-                const result = await commentsCollection.insertOne({
-                    ...comment,
-                    createdAt: new Date()
-                });
-                res.status(201).send(result);
+                const id = req.params.id;
+                const query = { _id: new ObjectId(id) };
+                const result = await lessonsCollection.findOne(query);
+                res.send(result);
             } catch (error) {
                 res.status(500).send({ error: error.message });
             }
         });
 
-        app.get('/api/lessons/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) }
-            const result = await lessonsCollection.findOne(query);
-            res.send(result);
-        })
-
         app.get('/api/lessons', async (req, res) => {
             try {
                 const query = {};
-
 
                 if (req.query.search) {
                     query.$or = [
@@ -238,24 +205,19 @@ async function run() {
                     ];
                 }
 
-
                 if (req.query.category && req.query.category !== 'all') {
                     query.category = { $regex: new RegExp(`^${req.query.category}$`, 'i') };
                 }
 
-
                 if (req.query.accessType && req.query.accessType !== 'all') {
                     query.accessType = req.query.accessType;
                 }
-
 
                 const page = parseInt(req.query.page) || 1;
                 const perPage = parseInt(req.query.perPage) || 12;
                 const skipItems = (page - 1) * perPage;
 
                 const total = await lessonsCollection.countDocuments(query);
-
-
                 const lessons = await lessonsCollection.find(query)
                     .sort({ createdAt: -1 })
                     .skip(skipItems)
@@ -268,49 +230,43 @@ async function run() {
             }
         });
 
-
-
         app.get('/my-lessons', async (req, res) => {
-            const userId = req.query.userId;
-
-            const result = await lessonsCollection
-                .find({ userId: userId })
-                .sort({ createdAt: -1 })
-                .toArray();
-
-            res.send(result);
+            try {
+                const userId = req.query.userId;
+                const result = await lessonsCollection
+                    .find({ userId: userId })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
         });
 
         app.post('/lessons/add', async (req, res) => {
-            const lesson = req.body;
-            const newLesson = {
-                ...lesson,
-                createdAt: new Date()
+            try {
+                const lesson = req.body;
+                const newLesson = { ...lesson, createdAt: new Date() };
+                const result = await lessonsCollection.insertOne(newLesson);
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
             }
-            const result = await lessonsCollection.insertOne(newLesson);
-            res.send(result);
         });
 
         app.post('/lessons/update/:id', async (req, res) => {
             try {
                 const id = req.params.id;
                 const updatedData = req.body;
-
                 delete updatedData._id;
 
                 const filter = { _id: new ObjectId(id) };
-
                 const updateDoc = {
-                    $set: {
-                        ...updatedData,
-                        updatedAt: new Date()
-                    }
+                    $set: { ...updatedData, updatedAt: new Date() }
                 };
 
                 const result = await lessonsCollection.updateOne(filter, updateDoc);
-
                 res.status(200).send(result);
-
             } catch (error) {
                 console.error("Backend Update Error:", error);
                 res.status(500).send({ success: false, error: error.message });
@@ -333,18 +289,113 @@ async function run() {
             }
         });
 
+        // ==========================================
+        // UTILITY: REPORTS & COMMENTS
+        // ==========================================
+        app.post('/api/reports/add', async (req, res) => {
+            try {
+                const reportData = req.body;
+                const result = await reportsCollection.insertOne({
+                    ...reportData,
+                    createdAt: new Date()
+                });
+                res.status(201).send({ success: true, result });
+            } catch (error) {
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+        app.get('/api/comments/:lessonId', async (req, res) => {
+            try {
+                const lessonId = req.params.lessonId;
+                const comments = await commentsCollection
+                    .find({ lessonId })
+                    .sort({ createdAt: -1 })
+                    .limit(4)
+                    .toArray();
+                res.send(comments);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        app.post('/api/comments/add', async (req, res) => {
+            try {
+                const comment = req.body;
+                const result = await commentsCollection.insertOne({
+                    ...comment,
+                    createdAt: new Date()
+                });
+                res.status(201).send(result);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        // ==========================================
+        // PLANS & SUBSCRIPTION PAYMENTS
+        // ==========================================
+        app.get('/api/plans', async (req, res) => {
+            try {
+                const query = {};
+                if (req.query.plan_id) {
+                    query.planId = req.query.plan_id; // Check using your dynamic unique key
+                }
+                const plan = await planCollection.findOne(query);
+                res.send(plan);
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        app.post('/api/payments', async (req, res) => {
+            try {
+                const data = req.body;
+                if (!data.email || !data.planId) {
+                    return res.status(400).send({ success: false, message: "Missing email or planId" });
+                }
+
+                const subInfo = {
+                    ...data,
+                    createdAt: new Date()
+                };
+                const paymentResult = await paymentCollection.insertOne(subInfo);
+
+                // Update the user's tier assignment
+                const filter = { email: data.email };
+                const updateDocument = {
+                    $set: { plan: data.planId }
+                };
+                const userUpdateResult = await usersCollection.updateOne(filter, updateDocument);
+
+                // Return clean structural JSON to prevent Next.js parsing crashes
+                res.status(200).send({
+                    success: true,
+                    message: "Payment tracked and user plan upgraded.",
+                    paymentResult,
+                    userUpdateResult
+                });
+            } catch (error) {
+                console.error("Payment API Error:", error);
+                res.status(500).send({ success: false, error: error.message });
+            }
+        });
+
+        // Ping confirmation
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
-    } finally {
-        // await client.close();
+
+    } catch (err) {
+        console.error("Failed to start server configurations:", err);
     }
 }
+
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
     res.send('Server is Serving...')
-})
+});
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
-})
+});
