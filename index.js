@@ -73,12 +73,25 @@ async function run() {
             next();
         }
 
+        const verifyUser = async (req, res, next) => {
+            if (!req.user?.role == 'user') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+            next();
+        }
+
+        const verifyAdmin = async (req, res, next) => {
+            if (!req.user?.role == 'admin') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+            next();
+        }
 
 
         // ==========================================
         // ADMIN: USER MANAGEMENT ROUTES
         // ==========================================
-        app.get('/api/admin/analytics-overview', verifyToken, async (req, res) => {
+        app.get('/api/admin/analytics-overview', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const totalUsers = await usersCollection.countDocuments({});
                 const publishedLessons = await lessonsCollection.countDocuments({ status: "Reviewed" });
@@ -171,7 +184,7 @@ async function run() {
             }
         });
 
-        app.get('/api/admin/users', verifyToken, async (req, res) => {
+        app.get('/api/admin/users', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const allUsers = await usersCollection.find({}).toArray();
                 const formattedUsers = await Promise.all(allUsers.map(async (user) => {
@@ -197,7 +210,7 @@ async function run() {
             }
         });
 
-        app.patch('/api/admin/users/update-role/:id', verifyToken, async (req, res) => {
+        app.patch('/api/admin/users/update-role/:id', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
                 const { role } = req.body;
@@ -227,7 +240,7 @@ async function run() {
             }
         });
 
-        app.delete('/api/admin/users/delete/:id', verifyToken, async (req, res) => {
+        app.delete('/api/admin/users/delete/:id', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
                 const filter = { _id: new ObjectId(id) };
@@ -273,7 +286,7 @@ async function run() {
         });
 
 
-        app.patch('/api/admin/lessons/featured/:id', verifyToken, async (req, res) => {
+        app.patch('/api/admin/lessons/featured/:id', verifyToken, verifyAdmin, async (req, res) => {
             const { id } = req.params;
             const { isFeatured, ...fullLessonData } = req.body; // ফ্রন্টএন্ড থেকে পাঠানো সম্পূর্ণ ডাটা এবং ফ্ল্যাগ রিসিভ করা হলো
 
@@ -312,7 +325,7 @@ async function run() {
             }
         });
 
-        app.patch('/api/admin/lessons/reviewed/:id', verifyToken, async (req, res) => {
+        app.patch('/api/admin/lessons/reviewed/:id', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
                 const filter = { _id: new ObjectId(id) };
@@ -352,7 +365,7 @@ async function run() {
         // ==========================================
         // USER ROUTES
         // ==========================================
-        app.post('/user/profile/update/:id', verifyToken, async (req, res) => {
+        app.post('/user/profile/update/:id', verifyToken, verifyUser, async (req, res) => {
             try {
                 const id = req.params.id;
                 const { name, bio, image } = req.body;
@@ -380,7 +393,7 @@ async function run() {
             }
         });
 
-        app.get('/user/stats/:id', verifyToken, async (req, res) => {
+        app.get('/user/stats/:id', verifyToken, verifyUser, async (req, res) => {
             try {
                 const id = req.params.id;
                 const lessonCount = await lessonsCollection.countDocuments({ userId: id });
@@ -396,7 +409,7 @@ async function run() {
             }
         });
 
-        app.get('/api/user-dashboard', verifyToken, async (req, res) => {
+        app.get('/api/user-dashboard', verifyToken, verifyUser, async (req, res) => {
             try {
                 const userId = req.query.userId;
                 if (!userId) {
@@ -682,7 +695,7 @@ async function run() {
             }
         });
 
-        app.delete('/lessons/delete/:id', verifyToken, async (req, res) => {
+        app.delete('/lessons/delete/:id', verifyToken, verifyUser, async (req, res) => {
             try {
                 const id = req.params.id;
                 const filter = { _id: new ObjectId(id) };
@@ -698,7 +711,7 @@ async function run() {
             }
         });
 
-        app.get('/my-saved-lessons', verifyToken, async (req, res) => {
+        app.get('/my-saved-lessons', verifyToken, verifyUser, async (req, res) => {
             try {
                 const userId = req.query.userId;
                 if (!userId) {
