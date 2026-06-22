@@ -36,27 +36,60 @@ async function run() {
         const commentsCollection = db.collection("comments");
         const planCollection = db.collection("plans");
         const paymentCollection = db.collection("payments");
-
         const featuredCollection = db.collection("featured");
+        const sessionCollection = db.collection("session");
 
-        console.log(`Connected successfully to database: ${dbName}`);
+        const verifyToken = async (req, res, next) => {
+            const authHeader = req.headers?.authorization;
+            if (!authHeader) {
+                return res.status(401).send({ message: 'unauthorized access' })
+            }
+
+            const token = authHeader.split(' ')[1];
+
+            if (!token) {
+                return res.status(401).send({ message: 'unauthorized access' })
+            }
+
+            const query = { token: token }
+            const session = await sessionCollection.findOne(query);
+
+            if (!session) {
+                return res.status(401).send({ message: 'unauthorized access' })
+            }
+
+            const userId = session.userId;
+            const userQuery = {
+                _id: userId
+            }
+            const user = await usersCollection.findOne(userQuery);
+
+            if (!user) {
+                return res.status(401).send({ message: 'unauthorized access' })
+            }
+
+            // set data in the req object
+            req.user = user;
+            next();
+        }
+
 
 
         // ==========================================
         // ADMIN: USER MANAGEMENT ROUTES
         // ==========================================
-        app.get('/api/admin/analytics-overview', async (req, res) => {
+        app.get('/api/admin/analytics-overview', verifyToken, async (req, res) => {
             try {
                 const totalUsers = await usersCollection.countDocuments({});
                 const publishedLessons = await lessonsCollection.countDocuments({ status: "Reviewed" });
                 const premiumMembers = await usersCollection.countDocuments({ plan: { $ne: "user_free" } });
                 const reportedContent = await reportsCollection.countDocuments({});
 
-                // ফিক্সড পাইপলাইন: প্রথমে চেক করা হচ্ছে ফিল্ডটি খালি কিনা, তারপর সেটিকে ডেট অবজেক্টে রূপান্তর করা হচ্ছে
+
                 const monthlyGrowthPipeline = [
                     {
                         $addFields: {
-                            // যদি createdAt ফিল্ডটি থাকে, তবে তাকে ডেট অবজেক্ট বানাবে, নাহলে কারেন্ট ডেট অবজেক্ট বসাবে
+
                             validDate: {
                                 $cond: {
                                     if: { $and: [{ $not: [{ $not: ["$createdAt"] }] }, { $ne: ["$createdAt", null] }] },
@@ -68,7 +101,7 @@ async function run() {
                     },
                     {
                         $group: {
-                            // এখন "$createdAt"-এর বদলে রূপান্তরিত "$validDate" ব্যবহার করা হয়েছে
+
                             _id: { $month: "$validDate" },
                             count: { $sum: 1 }
                         }
@@ -112,11 +145,11 @@ async function run() {
                 const startOfToday = new Date();
                 startOfToday.setHours(0, 0, 0, 0);
 
-                // আজকের লেসন কাউন্টের কোয়েরিকেও স্ট্রিং বা ডেট অবজেক্ট দুই ফরম্যাটের জন্যই নিরাপদ করা হলো
+
                 const todaysLessonsCount = await lessonsCollection.countDocuments({
                     $or: [
                         { createdAt: { $gte: startOfToday } },
-                        { createdAt: { $gte: startOfToday.toISOString() } } // যদি ডাটাবেজে ISO String থাকে
+                        { createdAt: { $gte: startOfToday.toISOString() } }
                     ]
                 });
 
@@ -138,7 +171,7 @@ async function run() {
             }
         });
 
-        app.get('/api/admin/users', async (req, res) => {
+        app.get('/api/admin/users', verifyToken, async (req, res) => {
             try {
                 const allUsers = await usersCollection.find({}).toArray();
                 const formattedUsers = await Promise.all(allUsers.map(async (user) => {
@@ -164,7 +197,7 @@ async function run() {
             }
         });
 
-        app.patch('/api/admin/users/update-role/:id', async (req, res) => {
+        app.patch('/api/admin/users/update-role/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const { role } = req.body;
@@ -194,7 +227,7 @@ async function run() {
             }
         });
 
-        app.delete('/api/admin/users/delete/:id', async (req, res) => {
+        app.delete('/api/admin/users/delete/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const filter = { _id: new ObjectId(id) };
@@ -216,7 +249,7 @@ async function run() {
         // ==========================================
         // ADMIN: LESSON MODERATION ROUTES
         // ==========================================
-        app.get('/api/admin/lessons', async (req, res) => {
+        app.get('/api/admin/lessons', verifyToken, async (req, res) => {
             try {
                 const allLessons = await lessonsCollection.find({}).sort({ createdAt: -1 }).toArray();
 
@@ -240,7 +273,7 @@ async function run() {
         });
 
 
-        app.patch('/api/admin/lessons/featured/:id', async (req, res) => {
+        app.patch('/api/admin/lessons/featured/:id', verifyToken, async (req, res) => {
             const { id } = req.params;
             const { isFeatured, ...fullLessonData } = req.body; // ফ্রন্টএন্ড থেকে পাঠানো সম্পূর্ণ ডাটা এবং ফ্ল্যাগ রিসিভ করা হলো
 
@@ -279,7 +312,7 @@ async function run() {
             }
         });
 
-        app.patch('/api/admin/lessons/reviewed/:id', async (req, res) => {
+        app.patch('/api/admin/lessons/reviewed/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const filter = { _id: new ObjectId(id) };
@@ -319,7 +352,7 @@ async function run() {
         // ==========================================
         // USER ROUTES
         // ==========================================
-        app.post('/user/profile/update/:id', async (req, res) => {
+        app.post('/user/profile/update/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const { name, bio, image } = req.body;
@@ -347,7 +380,7 @@ async function run() {
             }
         });
 
-        app.get('/user/stats/:id', async (req, res) => {
+        app.get('/user/stats/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const lessonCount = await lessonsCollection.countDocuments({ userId: id });
@@ -363,7 +396,7 @@ async function run() {
             }
         });
 
-        app.get('/api/user-dashboard', async (req, res) => {
+        app.get('/api/user-dashboard', verifyToken, async (req, res) => {
             try {
                 const userId = req.query.userId;
                 if (!userId) {
@@ -526,7 +559,7 @@ async function run() {
             }
         });
 
-        app.get('/api/lessons/:id', async (req, res) => {
+        app.get('/api/lessons/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const query = { _id: new ObjectId(id) };
@@ -619,7 +652,7 @@ async function run() {
             }
         });
 
-        app.post('/lessons/add', async (req, res) => {
+        app.post('/lessons/add', verifyToken, async (req, res) => {
             try {
                 const lesson = req.body;
                 const newLesson = { ...lesson, createdAt: new Date() };
@@ -649,7 +682,7 @@ async function run() {
             }
         });
 
-        app.delete('/lessons/delete/:id', async (req, res) => {
+        app.delete('/lessons/delete/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const filter = { _id: new ObjectId(id) };
@@ -665,7 +698,7 @@ async function run() {
             }
         });
 
-        app.get('/my-saved-lessons', async (req, res) => {
+        app.get('/my-saved-lessons', verifyToken, async (req, res) => {
             try {
                 const userId = req.query.userId;
                 if (!userId) {
@@ -822,7 +855,7 @@ async function run() {
         // ==========================================
         // PLANS & SUBSCRIPTION PAYMENTS
         // ==========================================
-        app.get('/api/plans', async (req, res) => {
+        app.get('/api/plans', verifyToken, async (req, res) => {
             try {
                 const query = {};
                 if (req.query.plan_id) {
@@ -835,7 +868,7 @@ async function run() {
             }
         });
 
-        app.post('/api/payments', async (req, res) => {
+        app.post('/api/payments', verifyToken, async (req, res) => {
             try {
                 const data = req.body;
                 if (!data.email || !data.planId) {
